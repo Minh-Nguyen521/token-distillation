@@ -80,33 +80,41 @@ def _load_texts_from_file(path: str, map_to_text_fn: Callable | None) -> list[st
     raise ValueError(f"Unsupported file format or missing text column: {path}")
 
 
+def _is_local(path: str) -> bool:
+    return path.startswith("/") or path.startswith(".")
+
+
 def _load_texts_from_hf(source: DatasetTokenSource) -> list[str]:
-    """Load texts from HuggingFace dataset, handling data_files if provided."""
+    """Load texts from local files or HuggingFace dataset."""
     texts = []
-    files = source.data_files if source.data_files else [None]
 
-    for data_file in files:
-        kwargs = dict(streaming=True)
-        if data_file:
-            kwargs["data_files"] = data_file
-            kwargs["split"] = "train"
-        else:
-            kwargs["split"] = source.split
-            if source.name:
-                kwargs["name"] = source.name
-
+    if source.data_files:
+        # load each file — local paths directly, HF-relative paths via load_dataset
+        for data_file in source.data_files:
+            if _is_local(data_file):
+                file_texts = _load_texts_from_file(data_file, source.map_to_text_fn)
+                texts.extend(file_texts)
+            else:
+                ds = load_dataset(source.dataset_path, data_files=data_file, split="train", streaming=True)
+                for i, example in enumerate(ds):
+                    if i >= source.max_docs:
+                        break
+                    text = source.map_to_text_fn(example) if source.map_to_text_fn else (example.get("text") or example.get("query", ""))
+                    if text:
+                        texts.append(text)
+    else:
+        kwargs = dict(streaming=True, split=source.split)
+        if source.name:
+            kwargs["name"] = source.name
         ds = load_dataset(source.dataset_path, **kwargs)
         for i, example in enumerate(ds):
             if i >= source.max_docs:
                 break
-            if source.map_to_text_fn:
-                text = source.map_to_text_fn(example)
-            else:
-                text = example.get("text") or example.get("query", "")
+            text = source.map_to_text_fn(example) if source.map_to_text_fn else (example.get("text") or example.get("query", ""))
             if text:
                 texts.append(text)
 
-    return texts
+    return texts[:source.max_docs]
 
 
 def extract_tokens_from_dataset(source: DatasetTokenSource, tokenizer) -> List[str]:
