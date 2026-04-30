@@ -29,10 +29,18 @@ def main(
     learning_rate: float = 1e-4,
     seed: int = 42,
     mixed_precision: bool = True,
+    # model loading
+    trust_remote_code: bool = True,
+    local_files_only: bool = True,
     # device
     device: str = "cuda:0",
 ):
-    tokdist = SentenceTransformerTokenDistillation(model_path=model_path, device=device)
+    tokdist = SentenceTransformerTokenDistillation(
+        model_path=model_path,
+        device=device,
+        trust_remote_code=trust_remote_code,
+        local_files_only=local_files_only,
+    )
 
     # --- resolve new tokens ---
     if token_source == "list":

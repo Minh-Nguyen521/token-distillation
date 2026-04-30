@@ -159,7 +159,13 @@ class SentenceTransformerTokenDistillation:
     new token embedding. Only input embeddings are updated; there is no LM head.
     """
 
-    def __init__(self, model_path: str, device: str = "cuda:0") -> None:
+    def __init__(
+        self,
+        model_path: str,
+        device: str = "cuda:0",
+        trust_remote_code: bool = False,
+        local_files_only: bool = False,
+    ) -> None:
         from sentence_transformers import SentenceTransformer
 
         if not torch.cuda.is_available():
@@ -169,8 +175,15 @@ class SentenceTransformerTokenDistillation:
 
         self.model_path = model_path
         self.device = device
+        self.trust_remote_code = trust_remote_code
+        self.local_files_only = local_files_only
 
-        self.model = SentenceTransformer(model_path, device=device)
+        self.model = SentenceTransformer(
+            model_path,
+            device=device,
+            trust_remote_code=trust_remote_code,
+            local_files_only=local_files_only,
+        )
         self.inner_model = self.model[0].auto_model
         self.source_tokenizer = self.model.tokenizer
         self._src_ws = detect_whitespace_token(self.source_tokenizer)
@@ -222,6 +235,7 @@ class SentenceTransformerTokenDistillation:
             snippets_per_token,
             data,
             tokenizer_repr=self._tokenizer_repr,
+            trust_remote_code=self.trust_remote_code,
         )
 
         if skipped:

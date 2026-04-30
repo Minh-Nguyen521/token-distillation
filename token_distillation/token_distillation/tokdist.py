@@ -196,12 +196,13 @@ def build_snippets_for_tokens_from_hf(
     snippets_per_token: int,
     dataset_cfg: HFDataSource,
     tokenizer_repr: str,
+    trust_remote_code: bool = False,
 ):
     """Collect snippets via Aho-Corasick for each new token string.
 
     Returns: (new_phrases_ids, new_phrases_snippets_ids, skipped)
     """
-    source_tokenizer_fast = AutoTokenizer.from_pretrained(model_path, use_fast=True)
+    source_tokenizer_fast = AutoTokenizer.from_pretrained(model_path, use_fast=True, trust_remote_code=trust_remote_code)
     patterns_ids = [get_new_phrase_tokenized_ids(t[0], source_tokenizer, model_path) for t in todo_tokens]
 
     cache_dir = _tokenize_dataset_if_needed(source_tokenizer_fast, dataset_cfg, tokenizer_repr)
