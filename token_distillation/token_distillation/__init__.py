@@ -1,6 +1,6 @@
 from .tokdist import (DistillationConfig, GeneratedDataSource, HFDataSource,
                       OutputEmbeddingInit, TokenDistillation)
-from .tokdist_st import SentenceTransformerTokenDistillation
+from .tokdist_st import DatasetTokenSource, SentenceTransformerTokenDistillation
 
 __all__ = [
     "DistillationConfig",
@@ -9,4 +9,5 @@ __all__ = [
     "OutputEmbeddingInit",
     "TokenDistillation",
     "SentenceTransformerTokenDistillation",
+    "DatasetTokenSource",
 ]
