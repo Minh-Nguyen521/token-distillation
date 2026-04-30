@@ -73,19 +73,22 @@ def main(
     print(f"[example_st] {len(new_tokens)} new tokens: {new_tokens[:10]}{'...' if len(new_tokens) > 10 else ''}")
 
     # --- snippet mining data ---
-    s_data_files = [f.strip() for f in snippet_data_files.split(",") if f.strip()]
-
-    def crosslingual_text(example: dict) -> str:
+    def crosslingual_text(example: dict) -> dict:
         query = example.get("query", "")
         pos = example.get("pos", [])
         passage = pos[0] if isinstance(pos, list) and pos else ""
-        return f"{query} {passage}".strip()
+        return {"text": f"{query} {passage}".strip()}
+
+    s_data_files = [f.strip() for f in snippet_data_files.split(",") if f.strip()]
+    local_files = [f for f in s_data_files if f.startswith("/") or f.startswith(".")]
+    hf_dataset = snippet_dataset_path if not local_files else ""
 
     data = HFDataSource(
-        dataset_path=snippet_dataset_path,
+        dataset_path=hf_dataset,
         split="train",
         max_docs=max_docs,
-        map_to_text_fn=crosslingual_text,
+        map_to_text_fn=crosslingual_text if any(f.endswith(".parquet") for f in s_data_files) else None,
+        data_files=local_files if local_files else None,
     )
 
     tokdist.run(

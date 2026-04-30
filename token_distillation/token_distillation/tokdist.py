@@ -37,7 +37,12 @@ class GeneratedDataSource:
 
 @dataclass
 class HFDataSource:
-    """Configuration for collecting snippets from an HF dataset."""
+    """Configuration for collecting snippets from an HF dataset or local files.
+
+    For local files, set dataset_path="" and provide data_files as a list of
+    absolute or relative paths (.json or .parquet). Dict-format JSON files
+    (e.g. {id: text}) are handled automatically.
+    """
 
     dataset_path: str
     name: str | None = None
@@ -49,6 +54,7 @@ class HFDataSource:
     map_to_text_fn: Callable | None = None  # optional: customize mapping to a "text" field
     # Example for `map_to_text_fn` for `ncbi/pubmed`:
     # lambda x: {"text": x["MedlineCitation"]["Article"]["Abstract"]["AbstractText"]}
+    data_files: list[str] | None = None  # local file paths (.json or .parquet)
 
 
 class OutputEmbeddingInit(str, Enum):
@@ -134,7 +140,38 @@ def extend_pretrained_with_tokens_and_embeddings(
 def _cache_dir(dataset_path: str, name: str | None, tokenizer_repr: str, max_docs: int | None) -> str:
     name_part = name or "default"
     max_part = str(max_docs) if max_docs is not None else "all"
-    return f"{DATASET_ROOT}/tokenized_{dataset_path}_{name_part}_{tokenizer_repr}_{max_part}/"
+    # sanitize dataset_path for use as directory name
+    safe_path = dataset_path.replace("/", "_").replace(".", "_")
+    return f"{DATASET_ROOT}/tokenized_{safe_path}_{name_part}_{tokenizer_repr}_{max_part}/"
+
+
+def _load_local_files_as_dataset(dataset_cfg: HFDataSource) -> Dataset:
+    """Load local JSON/parquet files into a Dataset with a 'text' column."""
+    import json as _json
+    import pandas as pd
+    all_texts = []
+    for path in dataset_cfg.data_files:
+        if path.endswith(".json"):
+            with open(path) as f:
+                data = _json.load(f)
+            if isinstance(data, dict):
+                texts = list(data.values())
+            else:
+                if dataset_cfg.map_to_text_fn:
+                    texts = [dataset_cfg.map_to_text_fn(item).get("text", "") for item in data]
+                else:
+                    texts = [item.get("text") or item.get("query", "") for item in data]
+        elif path.endswith(".parquet"):
+            df = pd.read_parquet(path)
+            if dataset_cfg.map_to_text_fn:
+                texts = [dataset_cfg.map_to_text_fn(row).get("text", "") for row in df.to_dict("records")]
+            else:
+                col = next((c for c in ["text", "query"] if c in df.columns), None)
+                texts = df[col].tolist() if col else []
+        else:
+            raise ValueError(f"Unsupported local file format: {path}")
+        all_texts.extend(str(t) for t in texts if t)
+    return Dataset.from_dict({"text": all_texts})
 
 
 def _tokenize_dataset_if_needed(
@@ -142,13 +179,30 @@ def _tokenize_dataset_if_needed(
     dataset_cfg: HFDataSource,
     tokenizer_repr: str,
 ) -> str:
-    cache_dir = _cache_dir(dataset_cfg.dataset_path, dataset_cfg.name, tokenizer_repr, dataset_cfg.max_docs)
+    cache_key = ",".join(dataset_cfg.data_files) if dataset_cfg.data_files else dataset_cfg.dataset_path
+    cache_dir = _cache_dir(cache_key, dataset_cfg.name, tokenizer_repr, dataset_cfg.max_docs)
     if os.path.exists(cache_dir):
         print(f"[tokdist] Using cached tokenized dataset at {cache_dir}")
         return cache_dir
     print(
-        f"[tokdist] Tokenizing dataset {dataset_cfg.max_docs} samples from {dataset_cfg.dataset_path} (this may take a while)...\n  Caching to {cache_dir}"
+        f"[tokdist] Tokenizing dataset {dataset_cfg.max_docs} samples from {cache_key} (this may take a while)...\n  Caching to {cache_dir}"
     )
+
+    if dataset_cfg.data_files:
+        ds = _load_local_files_as_dataset(dataset_cfg)
+        # apply max_docs limit
+        if dataset_cfg.max_docs is not None:
+            ds = ds.select(range(min(dataset_cfg.max_docs, len(ds))))
+        # tokenize directly (not streaming)
+        ds_tok = ds.map(
+            lambda x: {"tokens": tokenizer_fast(x["text"], truncation=False, padding=False, add_special_tokens=False)["input_ids"]},
+            batched=True,
+            batch_size=dataset_cfg.tokenization_batch_size,
+            remove_columns=["text"],
+        )
+        os.makedirs(cache_dir, exist_ok=True)
+        ds_tok.save_to_disk(cache_dir)
+        return cache_dir
 
     ds = load_dataset(
         dataset_cfg.dataset_path,
