@@ -1,7 +1,7 @@
 from fire import Fire
 
 from token_distillation import DistillationConfig, HFDataSource, SentenceTransformerTokenDistillation
-from token_distillation.token_distillation.tokdist_st import DatasetTokenSource, extract_tokens_from_dataset
+from token_distillation.tokdist_st import DatasetTokenSource, extract_tokens_from_dataset
 
 
 def main(
